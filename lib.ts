@@ -204,3 +204,4 @@ class Layout
 
 }
 
+export {Point, Hex, OffsetCoord, Orientation, Layout}
