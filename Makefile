@@ -1,5 +1,7 @@
-all: bundle.js
+all: hexmap.js
 
-bundle.js: map.ts
+map.js: map.ts
 	tsc *.ts --m es6
-	rollup map.js > bundle.js
+
+hexmap.js: map.js
+	rollup map.js > hexmap.js

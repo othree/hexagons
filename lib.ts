@@ -104,6 +104,10 @@ class Hex
         return results;
     }
 
+    public static equal(h1:Hex, h2:Hex) {
+      return (h1.q === h2.q && h1.r === h2.r && h1.s === h2.s);
+    }
+
 }
 
 class OffsetCoord

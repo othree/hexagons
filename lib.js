@@ -68,6 +68,9 @@ var Hex = (function () {
         }
         return results;
     };
+    Hex.equal = function (h1, h2) {
+        return (h1.q === h2.q && h1.r === h2.r && h1.s === h2.s);
+    };
     return Hex;
 }());
 Hex.directions = [new Hex(1, 0, -1), new Hex(1, -1, 0), new Hex(0, -1, 1), new Hex(-1, 0, 1), new Hex(-1, 1, 0), new Hex(0, 1, -1)];
