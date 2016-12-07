@@ -167,13 +167,14 @@ var HexMap = (function () {
     function HexMap(options) {
         if (options === void 0) { options = {}; }
         this.options = options;
-        this.map = [];
-        this.offsetMap = {};
+        this._map = [];
+        this.propMap = {};
         options.Prop = options.Prop || (function () { return {}; });
         options.mapSize = options.mapSize || 9;
         options.canvasWidth = options.canvasWidth || 600;
         options.drawHex = options.drawHex || this.defaultDrawHex;
         options.onclick = options.onclick || this.defaultOnclick;
+        this.mapSize = this.options.mapSize;
         this.canvasWidth = this.options.canvasWidth;
         this.calcEdgeSize();
         this.calcCanvasHeight();
@@ -197,13 +198,13 @@ var HexMap = (function () {
     HexMap.prototype.defaultOnclick = function () {
     };
     HexMap.prototype.calcEdgeSize = function () {
-        this.edgeSize = this.canvasWidth / (this.options.mapSize * Math.sqrt(3) + (Math.sqrt(3) / 2));
+        this.edgeSize = this.canvasWidth / (this.mapSize * Math.sqrt(3) + (Math.sqrt(3) / 2));
         this.w = this.edgeSize * 2;
         this.h = this.w;
     };
     HexMap.prototype.calcCanvasHeight = function () {
-        var height = ((Math.floor((this.options.mapSize + 1) / 2) * 1.5) - 0.5) * this.h;
-        if (this.options.mapSize % 2 === 0) {
+        var height = ((Math.floor((this.mapSize + 1) / 2) * 1.5) - 0.5) * this.h;
+        if (this.mapSize % 2 === 0) {
             height = height + this.h * 3 / 4;
         }
         height = Math.ceil(height);
@@ -213,17 +214,17 @@ var HexMap = (function () {
         this.size = new Point(this.edgeSize, this.edgeSize);
         this.origin = new Point(Layout.pointy.f1 * this.size.x, this.size.y);
         this.layout = new Layout(Layout.pointy, this.size, this.origin);
-        for (var r = 0; r < this.options.mapSize; r++) {
+        for (var r = 0; r < this.mapSize; r++) {
             var r_offset = Math.floor(r / 2);
-            for (var q = -r_offset; q < this.options.mapSize - r_offset; q++) {
+            for (var q = -r_offset; q < this.mapSize - r_offset; q++) {
                 var h = new Hex(q, r, -q - r);
-                this.map.push(h);
+                this._map.push(h);
             }
         }
-        for (var _i = 0, _a = this.map; _i < _a.length; _i++) {
+        for (var _i = 0, _a = this._map; _i < _a.length; _i++) {
             var h = _a[_i];
             var offset = OffsetCoord.roffsetFromCube(OffsetCoord.ODD, h);
-            this.offsetMap[offset.col + "_" + offset.row] = this.options.Prop(offset.col, offset.row);
+            this.propMap[h.q + "_" + h.r + "_" + h.s] = this.options.Prop(h, offset);
         }
     };
     HexMap.prototype.getCanvas = function () {
@@ -237,23 +238,40 @@ var HexMap = (function () {
         this.ctx = this.canvas.getContext("2d");
         this.redraw();
         this.canvas.onclick = function (event) {
-            _this.options.onclick(_this.clickThrough(event));
+            _this.options.onclick.call(_this, _this.clickThrough(event));
         };
         return this.canvas;
     };
-    HexMap.prototype.getProp = function (col, row) {
-        return this.offsetMap[col + "_" + row];
+    HexMap.prototype.getProp = function (h) {
+        return this.propMap[h.q + "_" + h.r + "_" + h.s];
     };
-    HexMap.prototype.setProp = function (col, row, prop) {
-        this.offsetMap[col + "_" + row] = prop;
+    HexMap.prototype.setProp = function (h, prop) {
+        this.propMap[h.q + "_" + h.r + "_" + h.s] = prop;
     };
+    HexMap.prototype.map = function (f) {
+        for (var _i = 0, _a = this._map; _i < _a.length; _i++) {
+            var h = _a[_i];
+            f.call(this, h);
+        }
+    };
+    HexMap.prototype.mapProp = function (f) {
+        this.map(function (h) {
+            var prop = this.getProp(h);
+            prop = f.call(this, prop);
+            this.setProp(h, prop);
+        });
+    };
+    HexMap.prototype.isBoundary = function (h) {
+        var offset = OffsetCoord.roffsetFromCube(OffsetCoord.ODD, h);
+        return (offset.col === 0 || offset.row === 0 || offset.col === this.mapSize - 1 || offset.row === this.mapSize - 1);
+    };
+    ;
     HexMap.prototype.redraw = function () {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.ctx.save();
-        for (var _i = 0, _a = this.map; _i < _a.length; _i++) {
+        for (var _i = 0, _a = this._map; _i < _a.length; _i++) {
             var h = _a[_i];
-            var offset = OffsetCoord.roffsetFromCube(OffsetCoord.ODD, h);
-            var prop = this.offsetMap[offset.col + "_" + offset.row];
+            var prop = this.propMap[h.q + "_" + h.r + "_" + h.s];
             this.options.drawHex.call(this, this.ctx, h, this.layout, this.edgeSize, prop);
         }
         this.ctx.restore();
@@ -263,13 +281,13 @@ var HexMap = (function () {
         var y = event.offsetY;
         var p = new Point(x, y);
         var h = Hex.round(Layout.pixelToHex(this.layout, p));
-        var offset = OffsetCoord.roffsetFromCube(OffsetCoord.ODD, h);
         return {
             h: h,
-            o: offset
+            o: OffsetCoord.roffsetFromCube(OffsetCoord.ODD, h),
+            prop: this.getProp(h)
         };
     };
     return HexMap;
 }());
 
-export default HexMap;
+export { Point, Hex, OffsetCoord, Orientation, Layout };export default HexMap;

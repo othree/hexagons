@@ -167,13 +167,14 @@ var HexMap = (function () {
     function HexMap(options) {
         if (options === void 0) { options = {}; }
         this.options = options;
-        this.map = [];
-        this.offsetMap = {};
+        this._map = [];
+        this.propMap = {};
         options.Prop = options.Prop || (function () { return {}; });
         options.mapSize = options.mapSize || 9;
         options.canvasWidth = options.canvasWidth || 600;
         options.drawHex = options.drawHex || this.defaultDrawHex;
         options.onclick = options.onclick || this.defaultOnclick;
+        this.mapSize = this.options.mapSize;
         this.canvasWidth = this.options.canvasWidth;
         this.calcEdgeSize();
         this.calcCanvasHeight();
@@ -197,33 +198,35 @@ var HexMap = (function () {
     HexMap.prototype.defaultOnclick = function () {
     };
     HexMap.prototype.calcEdgeSize = function () {
-        this.edgeSize = this.canvasWidth / (this.options.mapSize * Math.sqrt(3) + (Math.sqrt(3) / 2));
+        this.edgeSize = this.canvasWidth / (this.mapSize * Math.sqrt(3) + (Math.sqrt(3) / 2));
         this.w = this.edgeSize * 2;
         this.h = this.w;
     };
     HexMap.prototype.calcCanvasHeight = function () {
-        var height = ((Math.floor((this.options.mapSize + 1) / 2) * 1.5) - 0.5) * this.h;
-        if (this.options.mapSize % 2 === 0) {
+        var height = ((Math.floor((this.mapSize + 1) / 2) * 1.5) - 0.5) * this.h;
+        if (this.mapSize % 2 === 0) {
             height = height + this.h * 3 / 4;
         }
         height = Math.ceil(height);
         this.canvasHeight = height;
     };
     HexMap.prototype.prepareMap = function () {
+        var this$1 = this;
+
         this.size = new Point(this.edgeSize, this.edgeSize);
         this.origin = new Point(Layout.pointy.f1 * this.size.x, this.size.y);
         this.layout = new Layout(Layout.pointy, this.size, this.origin);
-        for (var r = 0; r < this.options.mapSize; r++) {
+        for (var r = 0; r < this.mapSize; r++) {
             var r_offset = Math.floor(r / 2);
-            for (var q = -r_offset; q < this.options.mapSize - r_offset; q++) {
+            for (var q = -r_offset; q < this.mapSize - r_offset; q++) {
                 var h = new Hex(q, r, -q - r);
-                this.map.push(h);
+                this$1._map.push(h);
             }
         }
-        for (var _i = 0, _a = this.map; _i < _a.length; _i++) {
+        for (var _i = 0, _a = this._map; _i < _a.length; _i++) {
             var h = _a[_i];
             var offset = OffsetCoord.roffsetFromCube(OffsetCoord.ODD, h);
-            this.offsetMap[offset.col + "_" + offset.row] = this.options.Prop(offset.col, offset.row);
+            this$1.propMap[h.q + "_" + h.r + "_" + h.s] = this$1.options.Prop(h, offset);
         }
     };
     HexMap.prototype.getCanvas = function () {
@@ -237,24 +240,45 @@ var HexMap = (function () {
         this.ctx = this.canvas.getContext("2d");
         this.redraw();
         this.canvas.onclick = function (event) {
-            _this.options.onclick(_this.clickThrough(event));
+            _this.options.onclick.call(_this, _this.clickThrough(event));
         };
         return this.canvas;
     };
-    HexMap.prototype.getProp = function (col, row) {
-        return this.offsetMap[col + "_" + row];
+    HexMap.prototype.getProp = function (h) {
+        return this.propMap[h.q + "_" + h.r + "_" + h.s];
     };
-    HexMap.prototype.setProp = function (col, row, prop) {
-        this.offsetMap[col + "_" + row] = prop;
+    HexMap.prototype.setProp = function (h, prop) {
+        this.propMap[h.q + "_" + h.r + "_" + h.s] = prop;
     };
+    HexMap.prototype.map = function (f) {
+        var this$1 = this;
+
+        for (var _i = 0, _a = this._map; _i < _a.length; _i++) {
+            var h = _a[_i];
+            f.call(this$1, h);
+        }
+    };
+    HexMap.prototype.mapProp = function (f) {
+        this.map(function (h) {
+            var prop = this.getProp(h);
+            prop = f.call(this, prop);
+            this.setProp(h, prop);
+        });
+    };
+    HexMap.prototype.isBoundary = function (h) {
+        var offset = OffsetCoord.roffsetFromCube(OffsetCoord.ODD, h);
+        return (offset.col === 0 || offset.row === 0 || offset.col === this.mapSize - 1 || offset.row === this.mapSize - 1);
+    };
+    ;
     HexMap.prototype.redraw = function () {
+        var this$1 = this;
+
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.ctx.save();
-        for (var _i = 0, _a = this.map; _i < _a.length; _i++) {
+        for (var _i = 0, _a = this._map; _i < _a.length; _i++) {
             var h = _a[_i];
-            var offset = OffsetCoord.roffsetFromCube(OffsetCoord.ODD, h);
-            var prop = this.offsetMap[offset.col + "_" + offset.row];
-            this.options.drawHex.call(this, this.ctx, h, this.layout, this.edgeSize, prop);
+            var prop = this$1.propMap[h.q + "_" + h.r + "_" + h.s];
+            this$1.options.drawHex.call(this$1, this$1.ctx, h, this$1.layout, this$1.edgeSize, prop);
         }
         this.ctx.restore();
     };
@@ -263,23 +287,35 @@ var HexMap = (function () {
         var y = event.offsetY;
         var p = new Point(x, y);
         var h = Hex.round(Layout.pixelToHex(this.layout, p));
-        var offset = OffsetCoord.roffsetFromCube(OffsetCoord.ODD, h);
         return {
             h: h,
-            o: offset
+            o: OffsetCoord.roffsetFromCube(OffsetCoord.ODD, h),
+            prop: this.getProp(h)
         };
     };
     return HexMap;
 }());
 
+var prop = function (key, value) {
+  return function (obj) {
+    obj[key] = value;
+    return obj;
+  };
+};
+
+var MAP_SIZE = 9;
+var BLOCK_VALUE = 100;
+
 var catCol = 4;
 var catRow = 4;
 var offset = new OffsetCoord(catCol, catRow);
 var cat = OffsetCoord.roffsetToCube(OffsetCoord.ODD, offset);
+var newcat = null;
 
 var map = new HexMap({
-  drawHex: function (ctx, h, prop) {
-    let corners = Layout.polygonCorners(this.layout, h);
+  mapSize: MAP_SIZE,
+  drawHex: function (ctx, h, layout, edgeSize, prop) {
+    var corners = Layout.polygonCorners(this.layout, h);
 
     ctx.beginPath();
     ctx.moveTo(corners[0].x, corners[0].y);
@@ -294,7 +330,7 @@ var map = new HexMap({
     ctx.stroke();
     ctx.closePath();
 
-    let center = Layout.hexToPixel(this.layout, h);
+    var center = Layout.hexToPixel(this.layout, h);
 
     ctx.beginPath();
     ctx.arc(center.x, center.y, 0.5 * this.edgeSize * this.layout.orientation.f3, 0, Math.PI * 2, true);
@@ -307,163 +343,106 @@ var map = new HexMap({
     }
     ctx.fill();
     ctx.closePath();
+
+    if (prop.value) {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(prop.value.toString(), center.x, center.y);
+    }
   },
 
   onclick: function (data) {
-    console.log(data);
+    var h = data.h;
+    var prop = data.prop;
+    if (!Hex.equal(h, cat) && !prop.block) {
+      prop.block = true;
+      this.setProp(h, prop);
+      catRun(this);
+      this.redraw();
+    }
   }
 });
 
-var c = map.getCanvas();
-
-document.getElementById('container').appendChild(c);
-
-/*
-const MAP_SIZE = 9;
-
-var width = 800;
-
-var singleSideSize = width / (MAP_SIZE * Math.sqrt(3) + (Math.sqrt(3) / 2));
-var w = singleSideSize * 2;
-var h = w;
-
-var height = ((Math.floor((MAP_SIZE + 1) / 2) * 1.5) - 0.5) * h;
-if (MAP_SIZE % 2 === 0) {
-  height = height + h * 3 / 4;
-}
-height = Math.ceil(height);
-
-var canvas = document.createElement('canvas');
-canvas.width = width;
-canvas.height = height;
-
-document.getElementById('container').appendChild(canvas);
-
-var size:Point = new Point(singleSideSize, singleSideSize);
-var origin:Point = new Point(Layout.pointy.f1 * size.x, size.y);
-
-var layout:Layout = new Layout(Layout.pointy, size, origin);
-
-var map:Hex[] = [];
-
-for (let r = 0; r < MAP_SIZE; r++) {
-    let r_offset = Math.floor(r/2);
-    for (let q = -r_offset; q < MAP_SIZE - r_offset; q++) {
-      // console.log(q,r)
-      let h = new Hex(q, r, -q-r);
-      map.push(h);
+var catRun = function (map) {
+  map.map(function (h) {
+    var prop$$ = map.getProp(h);
+    prop$$.visited = false;
+    prop$$.value = 0;
+    if (prop$$.block) {
+      prop$$.value = BLOCK_VALUE;
     }
-}
+    map.setProp(prop$$);
+  });
 
-var offsetMap = {};
+  var blocks = 0;
+  var minValue = BLOCK_VALUE;
+  var availNeighbors = [];
 
-for (let h of map) {
-  let offset:OffsetCoord = OffsetCoord.roffsetFromCube(OffsetCoord.ODD, h);
-  let key = `${offset.col}_${offset.row}`;
+  for (var i = 0; i < Hex.directions.length; i++) {
+    var lv1Neighbor = Hex.neighbor(cat, i);
+    var prop$$ = map.getProp(lv1Neighbor);
+    var lv1Noroute = false;
 
-  offsetMap[key] = {};
-}
-
-var catCol:number = 4;
-var catRow:number = 4;
-var offset:OffsetCoord = new OffsetCoord(catCol, catRow);
-var cat = OffsetCoord.roffsetToCube(OffsetCoord.ODD, offset);
-
-var getRoute = () => {
-
-  for (let col = 0; col < MAP_SIZE; col++) {
-    for (let row = 0; row < MAP_SIZE; row++) {
-      let offset = new OffsetCoord(col, row)
-      let key = `${offset.col}_${offset.row}`;
-      offsetMap[key].visited = false;
-      offsetMap[key].value = 0;
-      if (offsetMap[key].block) {
-        offsetMap[key].value = 100;
-      }
-    }
-  }
-
-  let blocks:number = 0;
-  let minValue:number = 100;
-
-  let availNeighbors:Hex[] = [];
-
-  let h = cat;
-  let offset = OffsetCoord.roffsetFromCube(OffsetCoord.ODD, h);
-  let key = `${offset.col}_${offset.row}`;
-  let targetProp = offsetMap[key];
-  targetProp.cat = true;
-
-  for (let i = 0; i < 6; i++) {
-    let lv1_neighbor = Hex.neighbor(h, i);
-    let offset:OffsetCoord = OffsetCoord.roffsetFromCube(OffsetCoord.ODD, lv1_neighbor);
-    let key = `${offset.col}_${offset.row}`;
-    let targetProp = offsetMap[key];
-    let lv1_noroute = false;
-
-    if (targetProp.block) {
+    if (prop$$.block) {
       blocks++;
       continue;
     }
 
-    if (offset.col === 0 || offset.row === 0 || offset.col === MAP_SIZE - 1 || offset.row === MAP_SIZE - 1) {
-      cat = lv1_neighbor;
+    if (map.isBoundary(lv1Neighbor)) {
+      cat = lv1Neighbor;
       alert('You Lose');
       return;
     }
 
-    for (let col = 0; col < MAP_SIZE; col++) {
-      for (let row = 0; row < MAP_SIZE; row++) {
-        let offset = new OffsetCoord(col, row)
-        let key = `${offset.col}_${offset.row}`;
-        offsetMap[key].visited = false;
-      }
-    }
+    map.mapProp(prop('visited', false));
 
-    let going = true;
-    let fringes = [];
-    fringes.push([lv1_neighbor]);
-    let step:number = 0;
+    var going = true;
+    var fringes = [];
+    var step = 0;
+
+    fringes.push([lv1Neighbor]);
 
     while (going) {
       step++;
 
       fringes.push([]);
 
-      for (let h of fringes[step-1]) {
-        for (let i = 0; i < 6; i++) {
-          let neighbor = Hex.neighbor(h, i);
-          let offset:OffsetCoord = OffsetCoord.roffsetFromCube(OffsetCoord.ODD, neighbor);
-          let key = `${offset.col}_${offset.row}`;
-          let targetProp = offsetMap[key];
-          if (targetProp && !targetProp.block && !targetProp.visited && !Hex.equal(neighbor, cat)) {
-            targetProp.visited = true;
+      for (var i$2 = 0, list = fringes[step - 1]; i$2 < list.length; i$2 += 1) {
+        var h = list[i$2];
+
+        for (var i$1 = 0; i$1 < Hex.directions.length; i$1++) {
+          var neighbor = Hex.neighbor(h, i$1);
+          var prop$1 = map.getProp(neighbor);
+          if (prop$1 && !prop$1.block && !prop$1.visited && !Hex.equal(neighbor, cat)) {
+            prop$1.visited = true;
+            map.setProp(neighbor, prop$1);
             fringes[step].push(neighbor);
-            if (offset.col === 0 || offset.row === 0 || offset.col === MAP_SIZE - 1 || offset.row === MAP_SIZE - 1) {
+            if (map.isBoundary(neighbor)) {
               going = false;
             }
           }
         }
       }
+
       if (fringes[step].length === 0) {
-        lv1_noroute = true;
+        lv1Noroute = true;
         going = false;
       }
     }
 
-    if (lv1_noroute) {
-      targetProp.value = 100;
+    if (lv1Noroute) {
+      prop$$.value = 100;
     } else {
-      targetProp.value = step;
+      prop$$.value = step;
     }
 
-    if (targetProp.value < minValue) {
-      cat = lv1_neighbor;
-      minValue = targetProp.value;
-    } else {
-      availNeighbors.push(lv1_neighbor);
-    }
+    map.setProp(lv1Neighbor, prop$$);
 
+    if (prop$$.value < minValue) {
+      newcat = lv1Neighbor;
+      minValue = prop$$.value;
+    } else {
+      availNeighbors.push(lv1Neighbor);
+    }
   }
 
   if (blocks === 6) {
@@ -472,98 +451,29 @@ var getRoute = () => {
   }
 
   if (minValue === 100) {
-    cat = availNeighbors[Math.floor(Math.random() * availNeighbors.length)];
+    newcat = availNeighbors[Math.floor(Math.random() * availNeighbors.length)];
   }
 
+  cat = newcat;
 };
 
-var ctx = canvas.getContext("2d");
-
-ctx.font="20px Georgia";
-
-var updateMap = () => {
-
-  ctx.save();
-  // ctx.translate(mapOffset.x, mapOffset.y);
-
-  for (let h of map) {
-    let offset:OffsetCoord = OffsetCoord.roffsetFromCube(OffsetCoord.ODD, h);
-    let key = `${offset.col}_${offset.row}`;
-    let prop = offsetMap[key];
-
-    let center = Layout.hexToPixel(layout, h);
-    ctx.beginPath();
-    ctx.arc(center.x, center.y, 0.5 * singleSideSize * layout.orientation.f3, 0, Math.PI*2, true);
-    if (Hex.equal(h, cat)) {
-      ctx.fillStyle = '#99ff66';
-    } else if (prop.block) {
-      ctx.fillStyle = '#ff9966';
-    } else {
-      ctx.fillStyle = '#6699ff';
-    }
-    ctx.fill();
-    // if (prop.value) {
-      // ctx.fillStyle = '#ffffff';
-      // ctx.fillText(prop.value.toString(), center.x, center.y);
-    // }
-    ctx.closePath();
-
-    let corners = Layout.polygonCorners(layout, h);
-    ctx.beginPath();
-    ctx.moveTo(corners[0].x, corners[0].y);
-    ctx.lineTo(corners[1].x, corners[1].y);
-    ctx.lineTo(corners[2].x, corners[2].y);
-    ctx.lineTo(corners[3].x, corners[3].y);
-    ctx.lineTo(corners[4].x, corners[4].y);
-    ctx.lineTo(corners[5].x, corners[5].y);
-    ctx.lineTo(corners[0].x, corners[0].y);
-    ctx.strokeStyle = '#999999';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.closePath();
-  }
-
-  ctx.restore();
-
-}
-
-for (let col = 0; col < MAP_SIZE; col++) {
-  for (let row = 0; row < MAP_SIZE; row++) {
-    let offset = new OffsetCoord(col, row)
-    let key = `${offset.col}_${offset.row}`;
-    let h = OffsetCoord.roffsetToCube(OffsetCoord.ODD, offset);
-    if (Hex.equal(h, cat)) {
-    } else {
-      let ratio = 0.2;
-      if (Math.abs(offset.row - catRow) < 2) {
+map.map(function (h) {
+  var prop = this.getProp(h);
+  if (!Hex.equal(h, cat)) {
+    var ratio = 0.3;
+    if (Math.abs(offset.row - catRow) < 2) {
+      ratio = 0.2;
+      if (Math.abs(offset.col - catCol) < 3) {
         ratio = 0.15;
-        if (Math.abs(offset.col - catCol) < 3) {
-          ratio = 0.1;
-        }
       }
-      offsetMap[key].block = (Math.random() < ratio) ? true : false;
     }
+    prop.block = Math.random() < ratio;
+    this.setProp(prop);
   }
-}
+});
 
-updateMap();
+var c = map.getCanvas();
 
-canvas.onclick = event => {
-  var x = event.offsetX;
-  var y = event.offsetY;
-  var p = new Point(x, y);
-  var h = Hex.round(Layout.pixelToHex(layout, p));
-  var offset = OffsetCoord.roffsetFromCube(OffsetCoord.ODD, h);
-  console.log(h);
-  console.log(offset);
-  let key = `${offset.col}_${offset.row}`;
-  let prop = offsetMap[key];
-  if (!prop.block) {
-    prop.block = true;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    getRoute();
-    updateMap();
-  }
-};
+map.redraw();
 
-*/
+document.getElementById('container').appendChild(c);

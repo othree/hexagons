@@ -1,7 +1,7 @@
 import {Point, Hex, OffsetCoord, Orientation, Layout} from './lib';
 
 interface Opt {
-  Prop?: (col: number, row: number) => any
+  Prop?: (Hex, OffsetCoord) => any
   mapSize?: number
   canvasWidth?: number
   drawHex?: (CanvasRenderingContext2D, Hex, any) => void
@@ -18,6 +18,7 @@ class HexMap {
     options.drawHex = options.drawHex || this.defaultDrawHex;
     options.onclick = options.onclick || this.defaultOnclick;
 
+    this.mapSize = this.options.mapSize;
     this.canvasWidth = this.options.canvasWidth;
 
     this.calcEdgeSize();
@@ -32,11 +33,13 @@ class HexMap {
   public w:number;
   public h:number;
 
+  public mapSize:number;
+
   protected size:Point;
   protected origin:Point;
   protected layout:Layout;
-  protected map:Hex[] = [];
-  protected offsetMap:{ [key: string]: any; } = {};
+  protected _map:Hex[] = [];
+  protected propMap:{ [key: string]: any; } = {};
 
   public canvas:HTMLCanvasElement;
   public ctx:CanvasRenderingContext2D;
@@ -61,13 +64,13 @@ class HexMap {
   }
 
   protected calcEdgeSize() {
-    this.edgeSize = this.canvasWidth / (this.options.mapSize * Math.sqrt(3) + (Math.sqrt(3) / 2));
+    this.edgeSize = this.canvasWidth / (this.mapSize * Math.sqrt(3) + (Math.sqrt(3) / 2));
     this.w = this.edgeSize * 2;
     this.h = this.w;
   }
   protected calcCanvasHeight() {
-    var height = ((Math.floor((this.options.mapSize + 1) / 2) * 1.5) - 0.5) * this.h;
-    if (this.options.mapSize % 2 === 0) {
+    var height = ((Math.floor((this.mapSize + 1) / 2) * 1.5) - 0.5) * this.h;
+    if (this.mapSize % 2 === 0) {
       height = height + this.h * 3 / 4;
     }
     height = Math.ceil(height);
@@ -78,17 +81,17 @@ class HexMap {
     this.origin = new Point(Layout.pointy.f1 * this.size.x, this.size.y);
     this.layout = new Layout(Layout.pointy, this.size, this.origin);
 
-    for (let r = 0; r < this.options.mapSize; r++) {
+    for (let r = 0; r < this.mapSize; r++) {
       let r_offset = Math.floor(r/2);
-      for (let q = -r_offset; q < this.options.mapSize - r_offset; q++) {
+      for (let q = -r_offset; q < this.mapSize - r_offset; q++) {
         let h = new Hex(q, r, -q-r);
-        this.map.push(h);
+        this._map.push(h);
       }
     }
 
-    for (let h of this.map) {
+    for (let h of this._map) {
       let offset:OffsetCoord = OffsetCoord.roffsetFromCube(OffsetCoord.ODD, h);
-      this.offsetMap[`${offset.col}_${offset.row}`] = this.options.Prop(offset.col, offset.row);
+      this.propMap[`${h.q}_${h.r}_${h.s}`] = this.options.Prop(h, offset);
     }
   }
 
@@ -104,27 +107,45 @@ class HexMap {
     this.redraw();
 
     this.canvas.onclick = (event) => {
-      this.options.onclick(this.clickThrough(event));
+      this.options.onclick.call(this, this.clickThrough(event));
     };
 
     return this.canvas;
   }
 
-  public getProp(col, row) {
-    return this.offsetMap[`${col}_${row}`];
+  public getProp(h) {
+    return this.propMap[`${h.q}_${h.r}_${h.s}`];
   }
 
-  public setProp(col, row, prop) {
-    this.offsetMap[`${col}_${row}`] = prop;
+  public setProp(h, prop) {
+    this.propMap[`${h.q}_${h.r}_${h.s}`] = prop;
   }
+
+  public map(f) {
+    for (let h of this._map) {
+      f.call(this, h);
+    }
+  }
+
+  public mapProp(f) {
+    this.map(function (h) {
+      var prop = this.getProp(h);
+      prop = f.call(this, prop);
+      this.setProp(h, prop);
+    });
+  }
+
+  public isBoundary (h) {
+    let offset = OffsetCoord.roffsetFromCube(OffsetCoord.ODD, h);
+    return (offset.col === 0 || offset.row === 0 || offset.col === this.mapSize - 1 || offset.row === this.mapSize - 1);
+  };
 
   public redraw() {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.ctx.save();
 
-    for (let h of this.map) {
-      let offset:OffsetCoord = OffsetCoord.roffsetFromCube(OffsetCoord.ODD, h);
-      let prop = this.offsetMap[`${offset.col}_${offset.row}`];
+    for (let h of this._map) {
+      let prop = this.propMap[`${h.q}_${h.r}_${h.s}`];
 
       this.options.drawHex.call(this, this.ctx, h, this.layout, this.edgeSize, prop);
     }
@@ -137,13 +158,14 @@ class HexMap {
     var y = event.offsetY;
     var p = new Point(x, y);
     var h = Hex.round(Layout.pixelToHex(this.layout, p));
-    var offset = OffsetCoord.roffsetFromCube(OffsetCoord.ODD, h);
 
     return {
       h: h,
-      o: offset
+      o: OffsetCoord.roffsetFromCube(OffsetCoord.ODD, h),
+      prop: this.getProp(h)
     };
   }
 }
 
 export default HexMap;
+export {Point, Hex, OffsetCoord, Orientation, Layout} from './lib';
